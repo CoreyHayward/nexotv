@@ -1,4 +1,4 @@
-FROM node:18-alpine
+FROM node:22-alpine
 
 WORKDIR /app
 
@@ -6,7 +6,7 @@ WORKDIR /app
 RUN apk add --no-cache python3 build-base
 
 # Install pnpm
-RUN npm install -g pnpm@latest
+RUN npm install -g pnpm@9.15.9
 
 # Install ALL workspace deps (backend native modules + frontend Vue toolchain)
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./

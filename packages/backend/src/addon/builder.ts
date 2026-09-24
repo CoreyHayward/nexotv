@@ -28,6 +28,7 @@ async function createAddon(config: AddonConfig) {
         const builder = new addonBuilder(manifest);
         const addonInstance = new M3UEPGAddon(config, manifest);
         await addonInstance.loadChannelsFromCache();
+        await addonInstance.loadEpgFromCache();
         try {
             if (!addonInstance.lastUpdate || (Date.now() - addonInstance.lastUpdate > addonInstance.updateInterval)) {
                 await addonInstance.updateData(true);
@@ -65,6 +66,15 @@ async function createAddon(config: AddonConfig) {
                 }
                 const PAGE_SIZE = env.CATALOG_PAGE_SIZE;
                 const skip = parseInt(extra.skip || '0', 10) || 0;
+
+                if (extra.date !== undefined) {
+                    const guideItems = items
+                        .map((item: any) => addonInstance.generateNativeEpgMeta(item, extra.date))
+                        .filter(Boolean)
+                        .slice(skip, skip + PAGE_SIZE);
+                    return { metasDetailed: guideItems };
+                }
+
                 const metas = items.slice(skip, skip + PAGE_SIZE).map((i: any) => addonInstance.generateMetaPreview(i));
                 if (env.DEBUG) {
                     console.log('[DEBUG] Catalog handler', {

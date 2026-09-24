@@ -44,7 +44,8 @@ export async function fetchData(addonInstance: any) {
     addonInstance.xtreamEtag = liveResp.headers.get('etag') ?? null;
 
     addonInstance.channels = [];
-    addonInstance.epgData = {};
+    // Keep a cached schedule while its refresh interval has not elapsed. The
+    // rebuilt channel list is matched against it by tvg-id for Native EPG.
 
     const live = await liveResp.json();
 

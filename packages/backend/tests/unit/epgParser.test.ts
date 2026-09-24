@@ -53,6 +53,22 @@ describe('parseEPG', () => {
     expect(epgData['ch1'][0].title).toBe('Show A');
     expect(epgData['ch2'][0].title).toBe('Show B');
   });
+
+  it('keeps future programmes for native guide day requests', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-19T10:00:00Z'));
+    const xml = [
+      '<?xml version="1.0"?>',
+      '<tv>',
+      '  <programme start="20260319120000 +0000" stop="20260319130000 +0000" channel="ch1"><title>Today</title></programme>',
+      '  <programme start="20260320120000 +0000" stop="20260320130000 +0000" channel="ch1"><title>Tomorrow</title></programme>',
+      '  <programme start="20260321120000 +0000" stop="20260321130000 +0000" channel="ch1"><title>Later</title></programme>',
+      '</tv>',
+    ].join('\n');
+
+    const epgData = await parseEPG(xml);
+    expect(epgData.ch1.map(programme => programme.title)).toEqual(['Today', 'Tomorrow', 'Later']);
+  });
 });
 
 // ─── parseEPGTime ────────────────────────────────────────────────────────────

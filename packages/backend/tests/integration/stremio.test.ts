@@ -58,9 +58,35 @@ function makeFakeIface() {
       version: '1.0.0',
       resources: ['catalog', 'stream', 'meta'],
       types: ['tv'],
-      catalogs: [{ type: 'tv', id: 'iptv_channels', name: 'IPTV', extra: [] }],
-      behaviorHints: { configurationRequired: true },
+      catalogs: [{ type: 'tv', id: 'iptv_channels', name: 'IPTV', extra: [{ name: 'date', isRequired: false }] }],
+      behaviorHints: { configurationRequired: true, epgProvider: true },
       description: 'Integration-test addon',
+    },
+    get: async (
+      resource: string,
+      type: string,
+      id: string,
+      extra: Record<string, string> = {},
+      _config: Record<string, unknown> = {},
+    ) => {
+      if (resource === 'catalog' && type === 'tv' && id === 'iptv_channels' && extra.date === '2026-09-12') {
+        return {
+          metasDetailed: [{
+            id: 'm3test_news',
+            type: 'tv',
+            name: 'Test News',
+            behaviorHints: { isLive: true, hasScheduledVideos: true },
+            videos: [{
+              id: 'm3test_news:epg:2026-09-12T18:00:00.000Z',
+              title: 'Evening News',
+              released: '2026-09-12T18:00:00.000Z',
+              startTime: '2026-09-12T18:00:00.000Z',
+              endTime: '2026-09-12T18:45:00.000Z',
+            }],
+          }],
+        };
+      }
+      return { metas: [] };
     },
   };
 }
@@ -126,6 +152,30 @@ describe('/:token/manifest.json', () => {
   it('sets Cache-Control: no-store', async () => {
     const res = await request(app).get(`/${VALID_TOKEN}/manifest.json`);
     expect(res.headers['cache-control']).toMatch(/no-store/);
+  });
+
+  it('advertises the Native EPG manifest capability and optional date extra', async () => {
+    // Official schema: https://github.com/Stremio/stremio-addon-sdk/blob/master/docs/epg.md
+    const res = await request(app).get(`/${VALID_TOKEN}/manifest.json`);
+    const manifest = JSON.parse(res.text);
+    expect(manifest.behaviorHints.epgProvider).toBe(true);
+    expect(manifest.catalogs[0].extra).toContainEqual({ name: 'date', isRequired: false });
+  });
+
+  it('serves a dated catalog as metasDetailed with scheduled programme videos', async () => {
+    const res = await request(app).get(`/${VALID_TOKEN}/catalog/tv/iptv_channels/date=2026-09-12.json`);
+    expect(res.status).toBe(200);
+    expect(res.body.metasDetailed).toHaveLength(1);
+    expect(res.body.metasDetailed[0]).toMatchObject({
+      id: 'm3test_news',
+      behaviorHints: { isLive: true, hasScheduledVideos: true },
+    });
+    expect(res.body.metasDetailed[0].videos[0]).toMatchObject({
+      title: 'Evening News',
+      released: '2026-09-12T18:00:00.000Z',
+      startTime: '2026-09-12T18:00:00.000Z',
+      endTime: '2026-09-12T18:45:00.000Z',
+    });
   });
 });
 

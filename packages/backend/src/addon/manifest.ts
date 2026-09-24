@@ -16,7 +16,10 @@ export function createManifest(idPrefix?: string, catalogName?: string) {
                 extra: [
                     { name: 'genre', isRequired: false, options: [] },
                     { name: 'search', isRequired: false },
-                    { name: 'skip' }
+                    { name: 'skip' },
+                    // Native EPG guide requests use this optional UTC day extra.
+                    // https://github.com/Stremio/stremio-addon-sdk/blob/master/docs/epg.md
+                    { name: 'date', isRequired: false }
                 ],
                 genres: []
             }

@@ -58,4 +58,12 @@ describe('createManifest', () => {
     const m = createManifest();
     expect(m.catalogs.length).toBeGreaterThan(0);
   });
+
+  it('declares the optional date extra required by Stremio Native EPG guides', () => {
+    // https://github.com/Stremio/stremio-addon-sdk/blob/master/docs/epg.md
+    const catalog = createManifest().catalogs[0];
+    expect(catalog.extra).toContainEqual({ name: 'date', isRequired: false });
+    // An unconfigured/public manifest must not promise an EPG schedule.
+    expect((createManifest() as any).behaviorHints.epgProvider).toBeUndefined();
+  });
 });

@@ -120,6 +120,98 @@ describe('generateMetaPreview', () => {
   });
 });
 
+// ─── Native Stremio EPG ─────────────────────────────────────────────────────
+
+describe('Native Stremio EPG programme mapping', () => {
+  const channel = {
+    id: 'xc_123',
+    name: 'Test Channel',
+    logo: 'http://logo.example.com/test.png',
+    category: 'News',
+    attributes: { 'tvg-id': 'news.test' },
+  };
+
+  it('returns only programmes overlapping the requested UTC day in Stremio video format', () => {
+    // Official contract: https://github.com/Stremio/stremio-addon-sdk/blob/master/docs/epg.md
+    const addon = new M3UEPGAddon({ provider: 'xtream', enableEpg: true, reformatLogos: false });
+    addon.epgData = {
+      'news.test': [
+        {
+          start: Date.parse('2026-09-11T23:30:00.000Z'),
+          stop: Date.parse('2026-09-12T00:30:00.000Z'),
+          title: 'Late Bulletin',
+          desc: 'Headlines at midnight.',
+        },
+        {
+          start: Date.parse('2026-09-12T18:00:00.000Z'),
+          stop: Date.parse('2026-09-12T18:45:00.000Z'),
+          title: 'Evening News',
+          desc: 'The day\'s headlines.',
+        },
+        {
+          start: Date.parse('2026-09-13T00:00:00.000Z'),
+          stop: Date.parse('2026-09-13T01:00:00.000Z'),
+          title: 'Tomorrow',
+          desc: '',
+        },
+      ],
+    };
+
+    const videos = addon.getNativeEpgVideos(channel, '2026-09-12');
+    expect(videos).toHaveLength(2);
+    expect(videos[1]).toMatchObject({
+      id: 'xc_123:epg:2026-09-12T18:00:00.000Z',
+      title: 'Evening News',
+      overview: 'The day\'s headlines.',
+      released: '2026-09-12T18:00:00.000Z',
+      startTime: '2026-09-12T18:00:00.000Z',
+      endTime: '2026-09-12T18:45:00.000Z',
+      runtime: '45 min',
+    });
+  });
+
+  it('advertises EPG only when configured data maps to a channel', () => {
+    const manifest: any = { behaviorHints: {} };
+    const addon = new M3UEPGAddon({ provider: 'xtream', enableEpg: true }, manifest);
+    addon.channels = [channel];
+    addon.epgData = {
+      'news.test': [{
+        start: Date.parse('2026-09-12T18:00:00.000Z'),
+        stop: Date.parse('2026-09-12T18:45:00.000Z'),
+        title: 'Evening News',
+        desc: '',
+      }],
+    };
+
+    addon.updateNativeEpgManifestState();
+    expect(manifest.behaviorHints.epgProvider).toBe(true);
+
+    addon.epgData = {};
+    addon.updateNativeEpgManifestState();
+    expect(manifest.behaviorHints.epgProvider).toBeUndefined();
+  });
+
+  it('builds a detailed live channel row with scheduled videos', () => {
+    const addon = new M3UEPGAddon({ provider: 'xtream', enableEpg: true, reformatLogos: false });
+    addon.epgData = {
+      'news.test': [{
+        start: Date.parse('2026-09-12T18:00:00.000Z'),
+        stop: Date.parse('2026-09-12T18:45:00.000Z'),
+        title: 'Evening News',
+        desc: '',
+      }],
+    };
+
+    const meta = addon.generateNativeEpgMeta(channel, '2026-09-12');
+    expect(meta).toMatchObject({
+      id: 'xc_123',
+      type: 'tv',
+      behaviorHints: { isLive: true, hasScheduledVideos: true },
+    });
+    expect(meta!.videos[0].startTime).toBe('2026-09-12T18:00:00.000Z');
+  });
+});
+
 // ─── deriveFallbackLogoUrl ───────────────────────────────────────────────────
 
 describe('deriveFallbackLogoUrl', () => {

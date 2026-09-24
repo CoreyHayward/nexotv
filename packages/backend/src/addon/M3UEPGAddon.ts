@@ -196,6 +196,7 @@ export class M3UEPGAddon {
         const cached = sqliteCache.get('addon:epg:' + this.cacheKey);
         if (cached) {
             this.epgData = cached.epgData || {};
+            this.updateNativeEpgManifestState();
             this.log.debug('EPG loaded from cache', { channels: Object.keys(this.epgData).length });
         }
     }
@@ -204,6 +205,74 @@ export class M3UEPGAddon {
         if (this.epgData && Object.keys(this.epgData).length > 0) return;
         if (!CACHE_ENABLED) return;
         await this.loadEpgFromCache();
+        // Also invalidates the generated SDK manifest after an evicted guide is
+        // restored from cache (the builder wraps this method for that purpose).
+        this.buildGenresInManifest();
+    }
+
+    private getEpgChannelId(item: any): string {
+        return item?.epg_channel_id || item?.attributes?.['tvg-id'] || item?.attributes?.['tvg-name'] || '';
+    }
+
+    /**
+     * Returns native-Stremio programme video objects for one channel.
+     *
+     * Schema source: https://github.com/Stremio/stremio-addon-sdk/blob/master/docs/epg.md
+     * Stremio requires `released`, `startTime` and `endTime` in ISO-8601 form,
+     * and resolves playback with the channel id rather than these video ids.
+     */
+    getNativeEpgVideos(item: any, date?: string) {
+        const epgChannelId = this.getEpgChannelId(item);
+        const programmes = epgChannelId ? this.epgData[epgChannelId] || [] : [];
+        const offsetMs = (this.config.epgOffsetHours as number) * 3600000;
+        let dayStart: number | undefined;
+        let dayEnd: number | undefined;
+
+        if (date !== undefined) {
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return [];
+            dayStart = Date.parse(`${date}T00:00:00.000Z`);
+            if (!Number.isFinite(dayStart)) return [];
+            if (new Date(dayStart).toISOString().slice(0, 10) !== date) return [];
+            dayEnd = dayStart + 24 * 3600000;
+        }
+
+        const seen = new Map<string, number>();
+        return programmes.flatMap((programme: any) => {
+            const start = Number(programme.start) + offsetMs;
+            const stop = Number(programme.stop) + offsetMs;
+            if (!Number.isFinite(start) || !Number.isFinite(stop) || stop <= start) return [];
+
+            // The official guide contract selects programmes that overlap the
+            // requested UTC day: end > day start and start < next day start.
+            if (dayStart !== undefined && dayEnd !== undefined && (stop <= dayStart || start >= dayEnd)) return [];
+
+            const startTime = new Date(start).toISOString();
+            const duplicateIndex = seen.get(startTime) || 0;
+            seen.set(startTime, duplicateIndex + 1);
+            const minutes = Math.round((stop - start) / 60000);
+            return [{
+                id: `${item.id}:epg:${startTime}${duplicateIndex ? `:${duplicateIndex + 1}` : ''}`,
+                title: programme.title || 'Unknown',
+                ...(programme.desc ? { overview: programme.desc } : {}),
+                released: startTime,
+                startTime,
+                endTime: new Date(stop).toISOString(),
+                ...(minutes > 0 ? { runtime: `${minutes} min` } : {}),
+            }];
+        });
+    }
+
+    hasNativeEpgSchedule() {
+        return !!this.config.enableEpg && this.channels.some(item => this.getNativeEpgVideos(item).length > 0);
+    }
+
+    updateNativeEpgManifestState() {
+        if (!this.manifestRef?.behaviorHints) return;
+        if (this.hasNativeEpgSchedule()) {
+            this.manifestRef.behaviorHints.epgProvider = true;
+        } else {
+            delete this.manifestRef.behaviorHints.epgProvider;
+        }
     }
 
     buildGenresInManifest() {
@@ -255,6 +324,7 @@ export class M3UEPGAddon {
                     await this.saveEpgToCache();
                 }
             }
+            this.updateNativeEpgManifestState();
             this.buildGenresInManifest();
             this.log.debug('Data update complete', {
                 channels: this.channels.length,
@@ -360,6 +430,27 @@ export class M3UEPGAddon {
         };
     }
 
+    generateNativeEpgMeta(item: any, date: string) {
+        const videos = this.getNativeEpgVideos(item, date);
+        if (videos.length === 0) return null;
+        const logoUrl = this.deriveFallbackLogoUrl(item);
+        return {
+            id: item.id,
+            type: 'tv',
+            name: item.name,
+            poster: logoUrl,
+            background: logoUrl,
+            posterShape: 'poster',
+            description: '📡 Live Channel',
+            genres: item.category
+                ? [item.category]
+                : (item.attributes?.['group-title'] ? [item.attributes['group-title']] : ['Live TV']),
+            runtime: 'Live',
+            behaviorHints: { isLive: true, hasScheduledVideos: true },
+            videos,
+        };
+    }
+
     async getStreams(id: string) {
         await this.ensureDataLoaded();
         const item = this.channelMap.get(id);
@@ -416,6 +507,13 @@ export class M3UEPGAddon {
             }
         }
         const logoUrl = this.deriveFallbackLogoUrl(item);
+        const nativeVideos = this.getNativeEpgVideos(item);
+        const now = Date.now();
+        const currentVideo = nativeVideos.find((video: any) =>
+            Date.parse(video.startTime) <= now && Date.parse(video.endTime) > now
+        );
+        const nearby = nativeVideos.filter((video: any) => Date.parse(video.startTime) > now).slice(0, 3);
+        const videos = currentVideo ? [currentVideo, ...nearby] : nearby;
         return {
             id: item.id,
             type: 'tv',
@@ -427,7 +525,11 @@ export class M3UEPGAddon {
             genres: item.category
                 ? [item.category]
                 : (item.attributes?.['group-title'] ? [item.attributes['group-title']] : ['Live TV']),
-            runtime: 'Live'
+            runtime: 'Live',
+            ...(videos.length > 0 ? {
+                behaviorHints: { isLive: true, hasScheduledVideos: true },
+                videos,
+            } : {})
         };
     }
 

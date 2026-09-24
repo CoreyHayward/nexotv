@@ -19,7 +19,6 @@ export async function parseEPG(content: string, log?: ReturnType<typeof makeLogg
         const epgData: Record<string, any[]> = {};
         if (result.tv && result.tv.programme) {
             const cutoff = Date.now() - 3600 * 1000; // 1 hour ago
-            const nowTime = Date.now();
             let eventCount = 0;
             for (const prog of result.tv.programme) {
                 // Yield every 5000 programmes to keep the event loop responsive
@@ -42,16 +41,9 @@ export async function parseEPG(content: string, log?: ReturnType<typeof makeLogg
             }
 
             for (const ch in epgData) {
+                // Keep the supplied future schedule: Native EPG date requests
+                // need more than the former five-programme metadata preview.
                 epgData[ch].sort((a, b) => a.start - b.start);
-                let futureCount = 0;
-                epgData[ch] = epgData[ch].filter(p => {
-                    const startTime = p.start;
-                    if (startTime > nowTime) {
-                        if (futureCount >= 5) return false;
-                        futureCount++;
-                    }
-                    return true;
-                });
             }
         }
         if (log) {
