@@ -373,6 +373,7 @@ export class M3UEPGAddon {
             if (CACHE_ENABLED) {
                 sqliteCache.del('addon:channels:' + this.cacheKey);
                 sqliteCache.del('addon:epg:' + this.cacheKey);
+                this.lastEpgUpdate = null;
             }
             await this.updateData(true);
             this.firstCatalogRefreshDone = true;

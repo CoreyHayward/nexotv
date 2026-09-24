@@ -68,6 +68,7 @@ async function createAddon(config: AddonConfig) {
                 const skip = parseInt(extra.skip || '0', 10) || 0;
 
                 if (extra.date !== undefined) {
+                    await addonInstance.ensureEpgLoaded();
                     const guideItems = items
                         .map((item: any) => addonInstance.generateNativeEpgMeta(item, extra.date))
                         .filter(Boolean)
